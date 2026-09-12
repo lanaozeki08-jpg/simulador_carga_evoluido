@@ -3,7 +3,8 @@
 #include <string.h>
 #include <ctype.h>
 
-#define MAX_SESSOES 10
+// agora com 100 sessões
+#define MAX_SESSOES 100
 #define MAX_FILA 20
 #define MAX_NOME 50
 #define MAX_DEMANDA_KW 200.0f
@@ -44,7 +45,10 @@ typedef struct {
     int tempoConectado;
 } ItemFila;
 
+// controle de posições (quantidade)
 static Sessao sessoes[MAX_SESSOES];
+static int totalSessoesCadastradas = 0;
+
 static ItemFila fila[MAX_FILA];
 static int tamFila = 0;
 static int totalSessoes = 0;
@@ -198,7 +202,7 @@ void gerarTxId(char *buf, int id) {
 
 float demandaTotal(void) {
     float total = 0.0f;
-    for (int i = 0; i < MAX_SESSOES; i++)
+    for (int i = 0; i < totalSessoesCadastradas; i++)
         if (sessoes[i].status == SESS_ATIVA || sessoes[i].status == SESS_THROTTLE)
             total += sessoes[i].potenciaAtual;
     return total;
@@ -210,7 +214,7 @@ void aplicarControleDemanda(void) {
 
     if (ratio <= LIMITE_THROTTLE) {
         int restaurou = 0;
-        for (int i = 0; i < MAX_SESSOES; i++) {
+        for (int i = 0; i < totalSessoesCadastradas; i++) {
             if (sessoes[i].status == SESS_THROTTLE) {
                 sessoes[i].potenciaAtual = potenciaBase(sessoes[i].tipo);
                 sessoes[i].status = SESS_ATIVA;
@@ -300,6 +304,7 @@ void promoverDaFila(void) {
     s->tempoEstimado = estimarTempo(prom.bateriaInicial, s->potenciaAtual);
     gerarTxId(s->ocppTxId, s->id);
     s->status = SESS_ATIVA;
+    totalSessoesCadastradas++;
     totalSessoes++;
 
     printf("\n  [>>] FILA: '%s' promovido(a) -> Sessao #%d iniciada!\n",
@@ -513,6 +518,7 @@ void abrirSessao(void) {
     s->tempoEstimado = estimarTempo(batInicial, s->potenciaAtual);
     gerarTxId(s->ocppTxId, s->id);
     s->status = SESS_ATIVA;
+    totalSessoesCadastradas++;
     totalSessoes++;
 
     sep();
@@ -624,7 +630,7 @@ void dashboard(void) {
     int ativas = 0, fila_cnt = tamFila;
     float demAtual = 0.0f, kwhSessaoAtiva = 0.0f;
 
-    for (int i = 0; i < MAX_SESSOES; i++) {
+    for (int i = 0; i < totalSessoesCadastradas; i++) {
         if (sessoes[i].status == SESS_ATIVA || sessoes[i].status == SESS_THROTTLE) {
             ativas++;
             demAtual += sessoes[i].potenciaAtual;
@@ -722,7 +728,7 @@ void relatorioCompleto(void) {
     float totKwh = 0, totRec = 0;
     int conc = 0, atv = 0;
 
-    for (int i = 0; i < MAX_SESSOES; i++) {
+    for (int i = 0; i < totalSessoesCadastradas; i++) {
         Sessao *s = &sessoes[i];
         if (s->status == SESS_INATIVA)
             continue;
@@ -771,7 +777,7 @@ void encerrarSessao(void) {
     cabecalho("ENCERRAR SESSAO");
 
     int alguma = 0;
-    for (int i = 0; i < MAX_SESSOES; i++) {
+    for (int i = 0; i < totalSessoesCadastradas; i++) {
         if (sessoes[i].status == SESS_ATIVA || sessoes[i].status == SESS_THROTTLE) {
             printf("  [%d] %s  |  %s  |  %.1f%%\n",
                    sessoes[i].id, sessoes[i].usuario,
@@ -959,6 +965,128 @@ void cenarioDemo(void) {
     pausar();
 }
 
+
+// =========================================================================
+// O LUGAR É EXATAMENTE AQUI! COLE AS 4 FUNÇÕES NESTE ESPAÇO:
+// =========================================================================
+
+void buscarSessaoManual(void) {
+    printf("\n  +------------------------------------------------+\n");
+    printf("  |               BUSCAR SESSAO                    |\n");
+    printf("  +------------------------------------------------+\n");
+    if (totalSessoesCadastradas == 0) {
+        printf("  Nenhuma sessao cadastrada para buscar.\n");
+        pausar();
+        return;
+    }
+    int idBusca;
+    printf("  Digite o ID da sessao que deseja buscar: ");
+    if (scanf("%d", &idBusca) != 1) {
+        printf("  [!] Entrada invalida.\n");
+        pausar();
+        return;
+    }
+    int encontrado = -1;
+    for (int i = 0; i < totalSessoesCadastradas; i++) {
+        if (sessoes[i].id == idBusca) {
+            encontrado = i;
+            break; 
+        }
+    }
+    if (encontrado != -1) {
+        Sessao *s = &sessoes[encontrado];
+        printf("\n  [SESSAO ENCONTRADA]\n");
+        printf("  ------------------------------------------------\n");
+        printf("  ID              : %d\n", s->id);
+        printf("  Usuario         : %s\n", s->usuario);
+        printf("  Tipo Carregador : %s\n", nomeTipo(s->tipo));
+        printf("  Status Atual    : %s\n", nomeStatus(s->status));
+        printf("  Bateria Atual   : %.1f%%\n", s->bateriaAtual);
+        printf("  Consumo Atual   : %.3f kWh\n", s->kwhConsumido);
+        printf("  Valor Cobrado   : R$ %.2f\n", s->valorTotal);
+        printf("  ------------------------------------------------\n");
+    } else {
+        printf("\n  [!] Sessao com ID %d nao encontrada.\n", idBusca);
+    }
+    pausar();
+}
+
+void ordenarSessoesManual(void) {
+    printf("\n  +------------------------------------------------+\n");
+    printf("  |               ORDENAR SESSOES                  |\n");
+    printf("  +------------------------------------------------+\n");
+    if (totalSessoesCadastradas < 2) {
+        printf("  Quantidade de sessoes insuficiente para ordenar.\n");
+        pausar();
+        return;
+    }
+    int opcaoOrdem;
+    printf("  Escolha o criterio de ordenacao:\n");
+    printf("    1 - Por ID\n");
+    printf("    2 - Por Energia Consumida\n");
+    printf("    3 - Por Custo (Valor Total)\n");
+    printf("    4 - Por Tempo de Conexao\n");
+    printf("  Opcao: ");
+    if (scanf("%d", &opcaoOrdem) != 1 || opcaoOrdem < 1 || opcaoOrdem > 4) {
+        printf("  [!] Opcao invalida.\n");
+        pausar();
+        return;
+    }
+    for (int i = 0; i < totalSessoesCadastradas - 1; i++) {
+        for (int j = 0; j < totalSessoesCadastradas - i - 1; j++) {
+            int trocar = 0;
+            switch (opcaoOrdem) {
+                case 1: if (sessoes[j].id > sessoes[j + 1].id) trocar = 1; break;
+                case 2: if (sessoes[j].kwhConsumido > sessoes[j + 1].kwhConsumido) trocar = 1; break;
+                case 3: if (sessoes[j].valorTotal > sessoes[j + 1].valorTotal) trocar = 1; break;
+                case 4: if (sessoes[j].tempoConectado > sessoes[j + 1].tempoConectado) trocar = 1; break;
+            }
+            if (trocar) {
+                Sessao temp = sessoes[j];
+                sessoes[j] = sessoes[j + 1];
+                sessoes[j + 1] = temp;
+            }
+        }
+    }
+    printf("\n  [v] Sessoes ordenadas com sucesso usando Bubble Sort Manual! Clique 2 para ver a lista ordenada!\n");
+    pausar();
+}
+
+void mostrarEstatisticasSprint(void) {
+    printf("\n  +------------------------------------------------+\n");
+    printf("  |             ESTATISTICAS DA ESTACAO            |\n");
+    printf("  +------------------------------------------------+\n");
+    if (totalSessoesCadastradas == 0) {
+        printf("  Nenhuma sessao registrada para gerar estatisticas.\n");
+        pausar();
+        return;
+    }
+    float energiaTotal = 0.0f;
+    float faturamento = 0.0f;
+    float maiorConsumo = sessoes[0].kwhConsumido;
+    float menorConsumo = sessoes[0].kwhConsumido;
+    for (int i = 0; i < totalSessoesCadastradas; i++) {
+        energiaTotal += sessoes[i].kwhConsumido;
+        faturamento += sessoes[i].valorTotal;
+        if (sessoes[i].kwhConsumido > maiorConsumo) maiorConsumo = sessoes[i].kwhConsumido;
+        if (sessoes[i].kwhConsumido < menorConsumo) menorConsumo = sessoes[i].kwhConsumido;
+    }
+    float ticketMedio = faturamento / totalSessoesCadastradas;
+    printf("  ========= ESTATISTICAS ==========\n");
+    printf("  Sessoes realizadas: %d\n", totalSessoesCadastradas);
+    printf("  Energia fornecida : %.2f kWh\n", energiaTotal);
+    printf("  Faturamento       : R$ %.2f\n", faturamento);
+    printf("  Ticket medio      : R$ %.2f\n", ticketMedio);
+    printf("  Maior consumo     : %.2f kWh\n", maiorConsumo);
+    printf("  Menor consumo     : %.2f kWh\n", menorConsumo);
+    printf("  =================================\n");
+    pausar();
+}
+
+
+
+
+
 void menuPrincipal(void) {
     int opc;
     do {
@@ -985,15 +1113,19 @@ void menuPrincipal(void) {
         printf("  |  Ativas: %-2d  Fila: %-2d  Receita: R$ %7.2f  |\n",
                atv, tamFila, receitaTotal);
         printf("  +================================================+\n");
-        printf("  |  [1] Abrir nova sessao                         |\n");
-        printf("  |  [2] Painel de sessoes + fila                  |\n");
-        printf("  |  [3] Simular sessao existente                  |\n");
-        printf("  |  [4] >> DASHBOARD EXECUTIVO <<                 |\n");
-        printf("  |  [5] Relatorio completo                        |\n");
-        printf("  |  [6] Cenario de demonstracao (4 veiculos)      |\n");
-        printf("  |  [7] Controle de demanda                       |\n");
-        printf("  |  [8] Encerrar sessao                           |\n");
-        printf("  |  [0] Sair                                      |\n");
+        printf("  |  [1] Nova sessao de recarga                    |\n");
+        printf("  |  [2] Listar sessoes (painel)                   |\n");
+        printf("  |  [3] Buscar sessao                             |\n");
+        printf("  |  [4] Ordenar sessoes                           |\n");
+        printf("  |  [5] Estatisticas da estacao                   |\n");
+        printf("  |  [6] Encerrar programa                         |\n");
+        printf("  |------------------------------------------------|\n");
+        printf("  |  [7] Simular progressi de sessao existente     |\n");
+        printf("  |  [8] >> DASHBOARD EXECUTIVO <<                 |\n"); // Era o seu antigo [4]
+        printf("  |  [9] Relatorio administrativo completo         |\n"); // Era o seu antigo [5]
+        printf("  |  [10] Executar cenario de demonstracao         |\n"); // Era o seu antigo [6]
+        printf("  |  [11] Forcar controle de demanda Grid          |\n"); // Era o seu antigo [7]
+        printf("  |  [12] Encerrar sessao manualmente (cobranca)   |\n"); // Era o seu antigo [8]
         printf("  +================================================+\n");
         printf("  Opcao: ");
 
@@ -1012,7 +1144,22 @@ void menuPrincipal(void) {
             limparTela();
             painelSessoes();
             break;
-        case 3:
+        case 3: // novo
+            limparTela();
+            buscarSessaoManual(); // Chama a nova função de busca linear
+            break;
+        case 4: // NOVO ITEM DA SPRINT 3
+            limparTela();
+            ordenarSessoesManual(); // Chama o novo Bubble Sort manual
+            break;
+        case 5: // NOVO ITEM DA SPRINT 3
+            limparTela();
+            mostrarEstatisticasSprint(); // Chama a tela de métricas exigidas
+            break;
+        case 6: // OPÇÃO DE SAÍDA EXIGIDA
+            printf("\n  Ate logo! Encerramento efetuado com sucesso.\n\n");
+            break;
+        case 7:
         {
             limparTela();
             printf("  ID da sessao para simular: ");
@@ -1043,36 +1190,35 @@ void menuPrincipal(void) {
 
             break;
         }
-        case 4:
+        case 8:
             dashboard();
             break;
-        case 5:
+        case 9:
             limparTela();
             relatorioCompleto();
             break;
-        case 6:
+        case 10:
             limparTela();
             cenarioDemo();
             break;
-        case 7:
+        case 11:
             limparTela();
             cabecalho("CONTROLE DE DEMANDA");
             aplicarControleDemanda();
             pausar();
             break;
-        case 8:
+        case 12:
             limparTela();
             encerrarSessao();
-            break;
-        case 0:
-            printf("\n  Ate logo! *\n\n");
             break;
         default:
             printf("  [!] Opcao invalida.\n");
             pausar();
         }
-    } while (opc != 0);
+    } while (opc != 6);
 }
+
+
 
 int main(void) {
     memset(sessoes, 0, sizeof(sessoes));
